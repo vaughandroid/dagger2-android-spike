@@ -12,6 +12,7 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mockito;
 
 import javax.inject.Named;
 import javax.inject.Singleton;
@@ -24,14 +25,13 @@ import dagger.Subcomponent;
 import dagger.android.ActivityKey;
 import dagger.android.AndroidInjectionModule;
 import dagger.android.AndroidInjector;
+import dagger.android.DispatchingAndroidInjector;
 import dagger.multibindings.IntoMap;
 
 import static org.junit.Assert.*;
 
 /**
- * Instrumentation test, which will execute on an Android device.
- *
- * @see <a href="http://d.android.com/tools/testing">Testing documentation</a>
+ * Example of the "official" way to inject Android framework classes on a per-test basis.
  */
 @RunWith(AndroidJUnit4.class)
 public class MyActivityTest {
@@ -44,27 +44,10 @@ public class MyActivityTest {
         myApp = (MyApp) InstrumentationRegistry.getTargetContext().getApplicationContext();
     }
 
-    @Test public void productionInjection() throws Exception {
-        // Create production object graph & inject.
-        DaggerAppComponent.builder()
-                .appModule(new AppModule(myApp))
-                .build()
-                .inject(myApp);
-
-        activityTestRule.launchActivity(new Intent(myApp, MyActivity.class));
-        MyActivity myActivity = activityTestRule.getActivity();
-
-        // Check things got injected correctly.
-        Assert.assertEquals("singleton-value", myActivity.singletonString);
-        Assert.assertEquals("per-activity-value", myActivity.perActivityString);
-    }
-
     @Test public void mockInjection() throws Exception {
-        // Create test object graph & inject.
-        DaggerMyActivityTest_TestAppComponent.builder()
-                .testAppModule(new TestAppModule(myApp))
-                .build()
-                .inject(myApp);
+        // Mock the injector and set it in the App.
+        DispatchingAndroidInjector<Activity> mockInjector = (DispatchingAndroidInjector<Activity>) Mockito.mock(DispatchingAndroidInjector.class);
+        myApp.dispatchingAndroidInjector = mockInjector;
 
         activityTestRule.launchActivity(new Intent(myApp, MyActivity.class));
         MyActivity myActivity = activityTestRule.getActivity();
@@ -74,53 +57,29 @@ public class MyActivityTest {
         Assert.assertEquals("test-per-activity-value", myActivity.perActivityString);
     }
 
-    @Singleton @Component(modules = { TestAppModule.class, AndroidInjectionModule.class, TestMyActivityModule.class })
+    @Singleton @Component(modules = { TestAppModule.class, AndroidInjectionModule.class })
     public interface TestAppComponent {
 
         void inject(MyApp myApp);
     }
 
     @Module
-    public class TestAppModule {
-        private final MyApp app;
-
-        public TestAppModule(MyApp app) {
-            this.app = app;
-        }
-
-        @Provides @Singleton MyApp app() {
-            return app;
-        }
-
-        @Provides @Singleton @Named("singleton-string")
-        public String singletonString() {
-            return "test-singleton-value";
-        }
-    }
-
-    @Module(subcomponents = TestMyActivitySubcomponent.class)
-    public static abstract class TestMyActivityModule {
-
-        @Binds @IntoMap @ActivityKey(MyActivity.class)
-        abstract AndroidInjector.Factory<? extends Activity> bind(TestMyActivitySubcomponent.Builder builder);
-    }
-
-    @PerActivity @Subcomponent(modules = TestPerActivityModule.class)
-    public interface TestMyActivitySubcomponent extends AndroidInjector<MyActivity> {
-
-        @Subcomponent.Builder
-        abstract class Builder extends AndroidInjector.Builder<MyActivity> {}
-    }
-
-    @Module
-    public static class TestPerActivityModule {
-
-        @Provides
-        @PerActivity @Named("per-activity-string")
-        public String perActivityString() {
-            return "test-per-activity-value";
+    public static class TestAppModule {
+        @Provides @IntoMap @ActivityKey(MyActivity.class)
+        AndroidInjector.Factory<? extends Activity> factory() {
+            return new AndroidInjector.Factory<MyActivity>() {
+                @Override
+                public AndroidInjector<MyActivity> create(MyActivity instance) {
+                    return new AndroidInjector<MyActivity>() {
+                        @Override
+                        public void inject(MyActivity instance) {
+                            instance.singletonString = "test-singleton-value";
+                            instance.perActivityString = "test-per-activity-value";
+                        }
+                    };
+                }
+            };
         }
     }
-
 
 }
